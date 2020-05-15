@@ -45,28 +45,34 @@ class DSSL(BaseEstimator):
         """
         self.__dict__.update(locals())
         
-    def loss(self,ranked_pair_diffs,smoothed_pair_diffs,T_diffs):
+    def loss(self,ranked_pair_diffs,smoothed_pair_diffs,T_diffs,ranked_pair_weights=None,smoothed_pair_weights=None):
         """
             DSSL loss
         """
+        if ranked_pair_weights is None:
+            ranked_pair_weights = np.ones(ranked_pair_diffs.shape[0])
+            
+        if smoothed_pair_weights is None:
+            smoothed_pair_weights = np.ones(smoothed_pair_diffs.shape[0])
+        
         f = 0.0
         
         # mean huber loss of the difference in scores between ranked pairs
-        f += np.sum(huber(1.0-np.dot(ranked_pair_diffs,self.w),self.h))/(ranked_pair_diffs.shape[0] + 1e-12)
+        ranking_loss = np.dot(ranked_pair_weights,huber(1.0-np.dot(ranked_pair_diffs,self.w),self.h))/(np.sum(ranked_pair_weights) + 1e-12)
         
         # mean squared normalized difference in scores between smoothed pairs
         smoothed_pair_score_diffs = np.dot(smoothed_pair_diffs,self.w)
-        f += self.smoothness_reg*np.sum((smoothed_pair_score_diffs/T_diffs)**2)/(smoothed_pair_diffs.shape[0] + 1e-12)
+        smoothing_loss = self.smoothness_reg*np.dot(smoothed_pair_weights,(smoothed_pair_score_diffs/T_diffs)**2)/(np.sum(smoothed_pair_weights) + 1e-12)
         
         # \ell_2 regularization
-        f += self.l2_reg*np.dot(self.w,self.w)/2.0
+        regularization = self.l2_reg*np.dot(self.w,self.w)/2.0
         
-        return f
+        return ranking_loss + smoothing_loss + regularization
     
     def set_params(self,w):
         self.w = w
         
-    def get_obj(self,X,T,ranked_pairs,smoothed_pairs):
+    def get_obj(self,X,T,ranked_pairs,smoothed_pairs,ranked_pair_weights=None,smoothed_pair_weights=None):
         # precalculate differences between pairs
         if ranked_pairs is None: 
             ranked_pair_diffs = np.zeros((0,X.shape[1]))
@@ -81,11 +87,11 @@ class DSSL(BaseEstimator):
         
         def obj(w):
             self.set_params(w)
-            return self.loss(ranked_pair_diffs,smoothed_pair_diffs,T_diffs)
+            return self.loss(ranked_pair_diffs,smoothed_pair_diffs,T_diffs,ranked_pair_weights,smoothed_pair_weights)
             
         return obj
         
-    def fit(self,X,T,ranked_pairs,smoothed_pairs):
+    def fit(self,X,T,ranked_pairs,smoothed_pairs,ranked_pair_weights=None,smoothed_pair_weights=None):
         """
             Fit the DSSL loss
             Args:
@@ -105,6 +111,12 @@ class DSSL(BaseEstimator):
                     try to find parameters such that minimizes 
                     (score(ranked_pairs[i,0]) - score(ranked_pairs[i,1]))**2/(T(ranked_pairs[i,0]) - T(ranked_pairs[i,1]))**2
                     for all i.
+        
+                ranked_pair_weights - (n_ranked_pairs,) float ndarray:
+                    Contains sample weights for each of the ranked pairs.
+    
+                smoothed_pair_weights - (n_smoothed_pairs,) float ndarray:
+                    Contains sample weights for each of the smoothed pairs.
         """
         assert X.shape[0] > 0
         assert T.shape == (X.shape[0],)
@@ -118,7 +130,7 @@ class DSSL(BaseEstimator):
         assert smoothed_pairs is None or np.all(smoothed_pairs[:,0] != smoothed_pairs[:,1])
         
         # get obj
-        obj = self.get_obj(X,T,ranked_pairs,smoothed_pairs)
+        obj = self.get_obj(X,T,ranked_pairs,smoothed_pairs,ranked_pair_weights,smoothed_pair_weights)
         
         # get the gradient function using autograd  
         gfun = grad(obj)

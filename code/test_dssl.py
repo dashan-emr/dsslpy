@@ -93,6 +93,45 @@ class TestDSSL(unittest.TestCase):
         
         self.assertAlmostEqual(0.0,dssl.res.fun)
         
+    def test_fit_weigthed(self):
+        """
+            Ranked pairs is created such that X is perfectly ordered and
+            the final loss should be zero.
+        """
+        N = 10
+        X = np.random.randn(N,2)
+        T = np.arange(N)
+        
+        w = np.random.randn(2)
+        
+        scores = np.dot(X,w)
+        
+        ranked_pairs = []
+        weights = []
+        for i in range(X.shape[0]):
+            for j in range(X.shape[0]):
+                if i != j:
+                    if scores[i] < scores[j]:
+                        ranked_pairs.append([i,j])
+                        weights.append(1.0)
+                    else:
+                        ranked_pairs.append([i,j])
+                        weights.append(0.0)
+                    
+        ranked_pairs = np.array(ranked_pairs)
+        weights = np.array(weights)
+        
+        smoothed_pairs = None
+        
+        smoothness_reg = 0.0
+        l2_reg = 0.0
+        
+        dssl = DSSL(disp=False)
+        dssl.fit(X,T,ranked_pairs,smoothed_pairs=None,ranked_pair_weights=weights)
+        
+        # print(dssl.res.fun)
+        self.assertAlmostEqual(0.0,dssl.res.fun)
+        
     def test_fit(self):
         """
             Test ability to run on reasonable data
